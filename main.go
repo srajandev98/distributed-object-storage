@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -11,15 +12,35 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/joho/godotenv"
+
 	_ "github.com/lib/pq"
 )
 
 var db *sql.DB
 
 func initDB() {
-	connStr := "user=srajangupta dbname=distributed_object_storage sslmode=disable"
+	err := godotenv.Load()
+	if err != nil {
+		panic("failed to load .env file")
+	}
 
-	var err error
+	dbUser := os.Getenv("DB_USER")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_NAME")
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbSSLMode := os.Getenv("DB_SSLMODE")
+
+	connStr := fmt.Sprintf(
+		"user=%s password=%s dbname=%s host=%s port=%s sslmode=%s",
+		dbUser,
+		dbPassword,
+		dbName,
+		dbHost,
+		dbPort,
+		dbSSLMode,
+	)
 
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {
