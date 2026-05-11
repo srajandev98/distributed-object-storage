@@ -9,6 +9,15 @@ import (
 func main() {
 	initDB()
 
+	err := initStorage()
+	if err != nil {
+		panic(err)
+	}
+
+	initReplicationQueue()
+
+	go replicationWorker()
+
 	http.HandleFunc("/upload/", uploadHandler)
 
 	http.HandleFunc("/download/", downloadHandler)

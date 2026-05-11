@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"io"
 	"net/http"
@@ -10,8 +11,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-
-	_ "github.com/lib/pq"
 )
 
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
@@ -30,44 +29,31 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	versionID := uuid.New().String()
 
-	versionedObjectKey := versionID + "_" + filepath.Base(objectKey)
-
-	bucketPath := filepath.Join("storage", bucket)
-
-	err := os.MkdirAll(bucketPath, os.ModePerm)
+	data, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "failed to create bucket", http.StatusInternalServerError)
+		http.Error(w, "failed to read object", http.StatusInternalServerError)
 		return
 	}
-
-	objectDir := filepath.Join(bucketPath, filepath.Dir(objectKey))
-
-	err = os.MkdirAll(objectDir, os.ModePerm)
-	if err != nil {
-		http.Error(w, "failed to create object directory", http.StatusInternalServerError)
-		return
-	}
-
-	objectPath := filepath.Join(objectDir, versionedObjectKey)
-
-	file, err := os.Create(objectPath)
-	if err != nil {
-		http.Error(w, "failed to create object", http.StatusInternalServerError)
-		return
-	}
-	defer file.Close()
 
 	hasher := sha256.New()
 
-	writer := io.MultiWriter(file, hasher)
+	hasher.Write(data)
 
-	size, err := io.Copy(writer, r.Body)
+	checksum := hex.EncodeToString(hasher.Sum(nil))
+
+	objectPath, err := storeObject(
+		bucket,
+		objectKey,
+		data,
+		versionID,
+	)
+
 	if err != nil {
-		http.Error(w, "failed to save object", http.StatusInternalServerError)
+		http.Error(w, "failed to replicate object", http.StatusInternalServerError)
 		return
 	}
 
-	checksum := hex.EncodeToString(hasher.Sum(nil))
+	size := int64(len(data))
 
 	contentType := r.Header.Get("Content-Type")
 
@@ -94,19 +80,22 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec(`
-        INSERT INTO objects (
-            bucket,
-            object_key,
-            file_path,
-            size,
-            content_type,
-            checksum,
-            version_id,
-            is_latest
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
-    `,
+	var objectID int
+
+	err = tx.QueryRow(`
+    INSERT INTO objects (
+        bucket,
+        object_key,
+        file_path,
+        size,
+        content_type,
+        checksum,
+        version_id,
+        is_latest
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
+    RETURNING id
+`,
 		bucket,
 		objectKey,
 		objectPath,
@@ -114,7 +103,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		contentType,
 		checksum,
 		versionID,
-	)
+	).Scan(&objectID)
 
 	if err != nil {
 		tx.Rollback()
@@ -122,6 +111,16 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to save metadata", http.StatusInternalServerError)
 		return
 	}
+
+	job := ReplicationJob{
+		ObjectID:  objectID,
+		Bucket:    bucket,
+		ObjectKey: objectKey,
+		VersionID: versionID,
+		Data:      data,
+	}
+
+	replicationQueue <- job
 
 	err = tx.Commit()
 	if err != nil {
@@ -145,7 +144,6 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 	objectKey := filepath.Clean(parts[1])
 
 	err := validatePresignedURL(r, bucket, objectKey)
-
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
@@ -155,19 +153,24 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 	var contentType string
 
 	err = db.QueryRow(`
-      SELECT file_path, content_type
-      FROM objects
-      WHERE bucket = $1
-      AND object_key = $2
-      AND is_latest = TRUE
-      LIMIT 1
+        SELECT file_path, content_type
+        FROM objects
+        WHERE bucket = $1
+        AND object_key = $2
+        AND is_latest = TRUE
+        LIMIT 1
     `,
 		bucket,
 		objectKey,
 	).Scan(&filePath, &contentType)
 
 	if err != nil {
-		http.Error(w, "object not found", http.StatusNotFound)
+		if err == sql.ErrNoRows {
+			http.Error(w, "object not found", http.StatusNotFound)
+			return
+		}
+
+		http.Error(w, "failed to fetch metadata", http.StatusInternalServerError)
 		return
 	}
 
@@ -180,7 +183,10 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 
 	filename := filepath.Base(objectKey)
 
-	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+	w.Header().Set(
+		"Content-Disposition",
+		"attachment; filename="+filename,
+	)
 
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
