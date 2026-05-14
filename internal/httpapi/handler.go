@@ -9,7 +9,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -111,9 +113,60 @@ func parseBucketObjectPath(path string, prefix string) (string, string, bool) {
 	if len(parts) != 2 {
 		return "", "", false
 	}
-	bucket := filepath.Base(parts[0])
-	objectKey := filepath.Clean(parts[1])
+
+	bucket := parts[0]
+	objectKey := parts[1]
+
+	if !isValidBucketName(bucket) {
+		return "", "", false
+	}
+	if !isValidObjectKey(objectKey) {
+		return "", "", false
+	}
+
 	return bucket, objectKey, true
+}
+
+var bucketNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+
+func isValidBucketName(name string) bool {
+	if !bucketNamePattern.MatchString(name) {
+		return false
+	}
+
+	if strings.Contains(name, "..") || strings.Contains(name, "/") {
+		return false
+	}
+
+	return true
+}
+
+func isValidObjectKey(key string) bool {
+	if key == "" {
+		return false
+	}
+
+	if strings.HasPrefix(key, "/") {
+		return false
+	}
+
+	if strings.Contains(key, `\`) {
+		return false
+	}
+
+	cleaned := path.Clean(key)
+	if cleaned == "." || cleaned == ".." {
+		return false
+	}
+
+	segments := strings.Split(cleaned, "/")
+	for _, segment := range segments {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+
+	return cleaned == key
 }
 
 func (h *Handler) generateSignature(data string) string {
