@@ -25,43 +25,6 @@ func New(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) EnsureReplicationJobsTable() error {
-	_, err := r.db.Exec(`
-		CREATE TABLE IF NOT EXISTS replication_jobs (
-			id SERIAL PRIMARY KEY,
-			object_id INTEGER NOT NULL,
-			bucket TEXT NOT NULL,
-			object_key TEXT NOT NULL,
-			version_id TEXT NOT NULL,
-			source_file_path TEXT NOT NULL,
-			status TEXT NOT NULL DEFAULT 'pending',
-			attempt_count INTEGER NOT NULL DEFAULT 0,
-			max_attempts INTEGER NOT NULL DEFAULT 5,
-			next_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			last_error TEXT,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		)
-	`)
-	if err != nil {
-		return err
-	}
-
-	_, err = r.db.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_replication_jobs_fetch
-		ON replication_jobs(status, next_run_at)
-	`)
-	if err != nil {
-		return err
-	}
-
-	_, err = r.db.Exec(`
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_replicas_object_node_unique
-		ON replicas(object_id, node_name)
-	`)
-	return err
-}
-
 func (r *Repository) SaveObjectWithJob(
 	bucket string,
 	objectKey string,

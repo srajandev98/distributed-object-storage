@@ -26,10 +26,20 @@ go.work.sum
 
 # env file
 .env
+core/.env
 
 # Editor/IDE
 # .idea/
 # .vscode/
 
+# JS/TS monorepo
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+packages/**/dist/
+
 # Data
 data/
+core/data/
+core/storage/

@@ -8,10 +8,12 @@ It is currently in active MVP development, with a working prototype for upload, 
 - Upload objects to a bucket/object path
 - Download latest object version via presigned URL
 - Store object metadata in PostgreSQL
+- Auto-apply SQL schema migrations on startup (`schema_migrations` tracked)
 - Generate object version IDs
 - Persist replication jobs in PostgreSQL
 - Replicate object files to secondary storage nodes with retry and terminal failure
 - Idempotent replica writes per `(object_id, node_name)`
+- Enforce one latest version row per `(bucket, object_key)` via DB constraint
 - Unit tests for service and replication failure handling
 
 ## Architecture (Current)
@@ -35,51 +37,6 @@ Notes:
 - Worker claims jobs with `FOR UPDATE SKIP LOCKED`.
 - State transitions are guarded in SQL (`WHERE status = 'running'` on completion/failure updates).
 - Retry delay uses quadratic backoff: `attempt^2` seconds.
-
-## Project Structure
-
-- `cmd/server`: application entrypoint and dependency wiring
-- `internal/config`: environment configuration loading
-- `internal/httpapi`: HTTP handlers and route registration
-- `internal/service`: core use-cases
-- `internal/repository`: PostgreSQL data access
-- `internal/storage`: local filesystem storage adapter
-- `internal/replication`: background replication worker
-
-## Prerequisites
-
-- Go `1.24+`
-- PostgreSQL
-
-## Configuration
-
-Create `.env` in repo root:
-
-```env
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_NAME=object_storage
-DB_HOST=localhost
-DB_PORT=5432
-DB_SSLMODE=disable
-APP_SECRET=replace_with_strong_secret
-```
-
-## Database Notes
-
-This project currently expects existing tables like `objects` and `replicas`.  
-`replication_jobs` is auto-created at startup.
-- A unique index is also created for replica idempotency on `(object_id, node_name)`.
-
-Planned improvement: move all schema creation to migration files under a dedicated `migrations/` directory.
-
-## Run Locally
-
-```bash
-go run ./cmd/server
-```
-
-Default server address: `http://localhost:8080`
 
 ## API (Current)
 
@@ -114,7 +71,7 @@ curl "http://localhost:8080/download/my-bucket/docs/sample.txt?expires=...&signa
 
 ## MVP Roadmap
 
-See [PLAN.md](./PLAN.md) for phased MVP milestones.
+See [PLAN.md](./core/PLAN.md) for phased MVP milestones.
 
 Near-term priorities:
 
@@ -123,21 +80,6 @@ Near-term priorities:
 3. Durable schema migrations
 4. API key auth and scoped access
 5. Observability and test coverage
-
-## Contributing
-
-Contributions are welcome.  
-Before opening a PR:
-
-1. Keep changes scoped and focused.
-2. Run formatting and tests:
-
-```bash
-gofmt -w ./...
-GOCACHE=/private/tmp/go-build go test ./...
-```
-
-3. Document behavior changes in README/PLAN when applicable.
 
 ## License
 

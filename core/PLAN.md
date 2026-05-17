@@ -19,7 +19,6 @@ This plan is split into:
 - Unit tests exist for service upload and replication failure paths.
 - Object key and bucket path validation is implemented for upload/download/presign routes.
 - Streaming upload and request size limits are still pending.
-- Schema migrations are still pending.
 
 ## 3) MVP Scope (What We Must Finish First)
 
@@ -48,8 +47,8 @@ An MVP is complete when the system includes:
 **Progress**
 - [x] Config loading with validation and startup checks
 - [x] Replication idempotency/job polling indexes
-- [ ] DB migrations
-- [ ] Object latest-version constraints
+- [x] DB migrations
+- [x] Object latest-version constraints
 
 ### Phase 2: Correctness and Safety
 

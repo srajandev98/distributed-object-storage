@@ -9,6 +9,7 @@ import (
 
 	"distributed-object-storage/internal/config"
 	"distributed-object-storage/internal/httpapi"
+	"distributed-object-storage/internal/migrations"
 	"distributed-object-storage/internal/replication"
 	"distributed-object-storage/internal/repository"
 	"distributed-object-storage/internal/service"
@@ -30,10 +31,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	repo := repository.New(db)
-	if err = repo.EnsureReplicationJobsTable(); err != nil {
+	if err = migrations.New(db).Apply(); err != nil {
 		log.Fatal(err)
 	}
+
+	repo := repository.New(db)
 
 	store := storage.NewLocal(cfg.StorageNodes)
 	if err = store.Init(); err != nil {
